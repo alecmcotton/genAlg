@@ -1,9 +1,7 @@
-#ifndef KINEMATICS_H
-#define KINEMATICS_H
+#pragma once
 
 #include <vector>
 #include <Eigen/Dense>
-
 
 struct DHParam {
     double theta;
@@ -12,18 +10,14 @@ struct DHParam {
     double alpha;
 };
 
-
-Eigen::Vector3d forwardKinematics(const std::vector<double>& jointAngles);
-
-std::vector<double> inverseKinematics(const Eigen::Vector3d& endEffectorPos);
-
 Eigen::Matrix4d computeDHMatrix(const DHParam& param);
 
-Eigen::Matrix4d computeForwardTransform(const std::vector<DHParam>& dhParams);
+Eigen::Matrix4d computeForwardTransform(const std::vector<DHParam>& params);
 
-Eigen::MatrixXd computeJacobian(const std::vector<double>& jointAngles);
+Eigen::VectorXd forwardKinematics(const std::vector<DHParam>& params);
+
+Eigen::MatrixXd computeJacobian(const std::vector<DHParam>& params);
 
 double computeManipulability(const Eigen::MatrixXd& jacobian);
 
-#endif
-
+Eigen::Vector3d computeEulerAngles(const Eigen::Matrix3d& R);
