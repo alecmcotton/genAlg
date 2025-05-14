@@ -106,23 +106,24 @@ Eigen::VectorXd numericalInverseKinematics(const Eigen::VectorXd& pose,
                                             std::vector<DHParam>& dh_params,
                                             int max_iter, double tol, double lambda) {
     int iter = 0;
-    Eigen::VectorXd sum = Eigen::VectorXd::Zero(dh_params.size()); // are you starting at a singularilty??
-    std::vector<DHParam> temp = substituteJoints(dh_params, sum);
+    Eigen::VectorXd theta_prev = Eigen::VectorXd::Zero(dh_params.size()); // are you starting at a singularilty??
+    std::vector<DHParam> temp = substituteJoints(dh_params, theta_prev);
     Eigen::VectorXd curr = forwardKinematics(temp);
-    Eigen::VectorXd error = (curr - pose);
+    Eigen::VectorXd error = (pose-curr);
     double e = error.norm();
-
+    Eigen::VectorXd theta(dh_params.size());
     while (e > tol && iter < max_iter) {
         Eigen::MatrixXd J = computeNumericalJacobian(temp);
         Eigen::MatrixXd Jt = pseudoInverse(J, 1e-6);
-        sum += lambda * Jt * error;
-        temp = substituteJoints(dh_params, sum);
+        theta = Jt * error * lambda + theta_prev;
+        theta_prev = theta;
+        temp = substituteJoints(dh_params, theta);
         curr = forwardKinematics(temp);
-        error = (curr - pose);
+        error = (pose-curr);
         e = error.norm();
         iter++;
     }
 
-    return sum;
+    return theta;
 }
 
