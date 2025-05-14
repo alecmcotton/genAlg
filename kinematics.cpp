@@ -44,14 +44,14 @@ Eigen::VectorXd forwardKinematics(const std::vector<DHParam>& dhParams) {
 Eigen::Vector3d computeEulerAngles(const Eigen::Matrix3d& R) {
     double alpha, beta, gamma;
 
-    if (std::abs(R(2, 0)) < 1.0) {
-        beta = std::asin(-R(2, 0));
-        alpha = std::atan2(R(2, 1) / std::cos(beta), R(2, 2) / std::cos(beta));
-        gamma = std::atan2(R(1, 0) / std::cos(beta), R(0, 0) / std::cos(beta));
+    if (std::abs(std::asin(R(0,2))) < 0.01) {
+        alpha = std::atan2(R(0,1),R(1,1));
+        beta = M_PI_2;
+        gamma = 0.0;
     } else {
-        beta = M_PI_2 * std::copysign(1.0, -R(2, 0));
-        alpha = 0.0;
-        gamma = std::atan2(-R(0, 1), R(1, 1));
+        alpha = std::atan2(-R(1,2),R(2,2));
+        beta = std::asin(R(0,2));
+        gamma = std::atan2(-R(0,1),R(0,0));
     }
 
     return Eigen::Vector3d(alpha, beta, gamma);
@@ -114,6 +114,7 @@ Eigen::VectorXd numericalInverseKinematics(const Eigen::VectorXd& pose,
     Eigen::VectorXd theta(dh_params.size());
     while (e > tol && iter < max_iter) {
         Eigen::MatrixXd J = computeNumericalJacobian(temp);
+        //Eigen::MatrixXd Jt = J.completeOrthogonalDecomposition().pseudoInverse();
         Eigen::MatrixXd Jt = pseudoInverse(J, 1e-6);
         theta = Jt * error * lambda + theta_prev;
         theta_prev = theta;
