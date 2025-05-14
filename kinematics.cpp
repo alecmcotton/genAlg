@@ -106,7 +106,7 @@ Eigen::VectorXd numericalInverseKinematics(const Eigen::VectorXd& pose,
                                             std::vector<DHParam>& dh_params,
                                             int max_iter, double tol, double lambda) {
     int iter = 0;
-    Eigen::VectorXd sum = Eigen::VectorXd::Zero(dh_params.size());
+    Eigen::VectorXd sum = Eigen::VectorXd::Zero(dh_params.size()); // are you starting at a singularilty??
     std::vector<DHParam> temp = substituteJoints(dh_params, sum);
     Eigen::VectorXd curr = forwardKinematics(temp);
     Eigen::VectorXd error = (curr - pose);
