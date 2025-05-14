@@ -40,6 +40,7 @@ Eigen::VectorXd forwardKinematics(const std::vector<DHParam>& dhParams) {
     return result;
 }
 
+
 Eigen::Vector3d computeEulerAngles(const Eigen::Matrix3d& R) {
     double alpha, beta, gamma;
 
@@ -61,4 +62,72 @@ double computeManipulability(const MatrixXd& jacobian) {
     return std::sqrt(JJt.determinant());
 }
 
+Eigen::MatrixXd computeNumericalJacobian(const std::vector<DHParam>& dhParams) {
+    constexpr double epsilon = 1e-12;
+    int n = dhParams.size();
+    Eigen::MatrixXd J(6, n);
+
+    for (int i = 0; i < n; ++i) {
+        std::vector<DHParam> dh_lower = dhParams;
+        std::vector<DHParam> dh_upper = dhParams;
+        dh_lower[i].theta -= epsilon;
+        dh_upper[i].theta += epsilon;
+        Eigen::VectorXd pose_upper = forwardKinematics(dh_upper);
+        Eigen::VectorXd pose_lower = forwardKinematics(dh_lower);
+        Eigen::VectorXd diff = (pose_upper - pose_lower) / (2*epsilon);
+        J.col(i) = diff;
+    }
+
+    return J;
+}
+
+std::vector<DHParam> substituteJoints(const std::vector<DHParam>& dh_params, const Eigen::VectorXd& joint_angles) {
+    std::vector<DHParam> result = dh_params;
+    for (size_t i = 0; i < result.size(); ++i) {
+        result[i].theta += joint_angles[i];
+    }
+    return result;
+}
+
+
+Eigen::MatrixXd pseudoInverse(const Eigen::MatrixXd& mat, double tolerance) {
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(mat, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    const auto& singularValues = svd.singularValues();
+    Eigen::MatrixXd singularValuesInv(mat.cols(), mat.rows());
+    singularValuesInv.setZero();
+
+    for (int i = 0; i < singularValues.size(); ++i) {
+        if (singularValues(i) > tolerance) {
+            singularValuesInv(i, i) = 1.0 / singularValues(i);
+        }
+    }
+
+    return svd.matrixV() * singularValuesInv * svd.matrixU().transpose();
+}
+
+Eigen::VectorXd numericalInverseKinematics(const Eigen::VectorXd& pose,
+                                            std::vector<DHParam>& dh_params,
+                                            int max_iter, double tol, double lambda) {
+    int iter = 0;
+    Eigen::VectorXd sum = Eigen::VectorXd::Zero(dh_params.size());
+    std::vector<DHParam> temp = substituteJoints(dh_params, sum);
+    Eigen::VectorXd curr = forwardKinematics(temp);
+    Eigen::VectorXd error = (curr - pose);
+    double e = error.norm();
+
+    while (e > tol && iter < max_iter) {
+        Eigen::MatrixXd J = computeNumericalJacobian(temp);
+        Eigen::MatrixXd Jt = pseudoInverse(J, 1e-6);
+        sum += lambda*Jt*error;
+
+        temp = substituteJoints(dh_params, sum);
+
+        curr = forwardKinematics(temp);
+        error = (curr - pose);
+        e = error.norm();
+        iter++;
+    }
+
+    return sum;
+}
 

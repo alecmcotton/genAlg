@@ -15,17 +15,29 @@ int main() {
     };
 
 
-    std::vector<double> joint_angles = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    Eigen::VectorXd joint_angles(dh_params.size());
+    joint_angles << M_PI/8, M_PI/8, M_PI/8, M_PI/8, M_PI/8, M_PI/8;
 
-    for (size_t i = 0; i < dh_params.size(); ++i) {
-        dh_params[i].theta += joint_angles[i];
-    }
+    std::vector<DHParam> robot_params = substituteJoints(dh_params,joint_angles);
+    //for (size_t i = 0; i < dh_params.size(); ++i) {
+    //    dh_params[i].theta += joint_angles[i];
+    //}
 
-    Eigen::VectorXd pose = forwardKinematics(dh_params);
-
+    Eigen::VectorXd pose = forwardKinematics(robot_params);
     std::cout << "End-Effector Position (x, y, z):\n" << pose.head<3>().transpose() << std::endl;
     std::cout << "End-Effector Orientation (Euler angles α, β, γ in radians):\n" << pose.tail<3>().transpose() << std::endl;
-
+    Eigen::MatrixXd J = computeNumericalJacobian(robot_params);
+    std::cout << "Jacobian:\n" << J << std::endl;
+    double mu = computeManipulability(J);
+    std::cout << "Manipulability:\n" << mu << std::endl;
+    Eigen::VectorXd q = numericalInverseKinematics(pose,dh_params,200,1e-3,1e-2);
+    std::cout << "Inverse kinematic solution:\n" << q << std::endl;
+    std::vector<DHParam> next_params = substituteJoints(dh_params,q);
+    Eigen::VectorXd pose_check = forwardKinematics(next_params);
+    std::cout << "End-Effector Position (x, y, z):\n" << pose_check.head<3>().transpose() << std::endl;
+    std::cout << "End-Effector Orientation (Euler angles α, β, γ in radians):\n" << pose_check.tail<3>().transpose() << std::endl;
+    double error = (pose_check-pose).norm();
+    std::cout << "Error:\n" << error << std::endl;
     return 0;
 }
 
