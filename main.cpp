@@ -30,7 +30,7 @@ int main() {
     std::cout << "Jacobian:\n" << J << std::endl;
     double mu = computeManipulability(J);
     std::cout << "Manipulability:\n" << mu << std::endl;
-    Eigen::VectorXd q = numericalInverseKinematics(pose,dh_params,200,1e-3,1e-2);
+    Eigen::VectorXd q = numericalInverseKinematics(pose,dh_params,200,1e-3,1e-4);
     std::cout << "Inverse kinematic solution:\n" << q << std::endl;
     std::vector<DHParam> next_params = substituteJoints(dh_params,q);
     Eigen::VectorXd pose_check = forwardKinematics(next_params);

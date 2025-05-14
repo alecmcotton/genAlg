@@ -93,16 +93,13 @@ std::vector<DHParam> substituteJoints(const std::vector<DHParam>& dh_params, con
 Eigen::MatrixXd pseudoInverse(const Eigen::MatrixXd& mat, double tolerance) {
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(mat, Eigen::ComputeThinU | Eigen::ComputeThinV);
     const auto& singularValues = svd.singularValues();
-    Eigen::MatrixXd singularValuesInv(mat.cols(), mat.rows());
-    singularValuesInv.setZero();
+    Eigen::VectorXd invSingularValues(singularValues.size());
 
     for (int i = 0; i < singularValues.size(); ++i) {
-        if (singularValues(i) > tolerance) {
-            singularValuesInv(i, i) = 1.0 / singularValues(i);
-        }
+        invSingularValues(i) = (singularValues(i) > tolerance) ? 1.0 / singularValues(i) : 0.0;
     }
 
-    return svd.matrixV() * singularValuesInv * svd.matrixU().transpose();
+    return svd.matrixV() * invSingularValues.asDiagonal() * svd.matrixU().transpose();
 }
 
 Eigen::VectorXd numericalInverseKinematics(const Eigen::VectorXd& pose,
@@ -118,10 +115,8 @@ Eigen::VectorXd numericalInverseKinematics(const Eigen::VectorXd& pose,
     while (e > tol && iter < max_iter) {
         Eigen::MatrixXd J = computeNumericalJacobian(temp);
         Eigen::MatrixXd Jt = pseudoInverse(J, 1e-6);
-        sum += lambda*Jt*error;
-
+        sum += lambda * Jt * error;
         temp = substituteJoints(dh_params, sum);
-
         curr = forwardKinematics(temp);
         error = (curr - pose);
         e = error.norm();
