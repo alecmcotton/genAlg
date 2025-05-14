@@ -14,10 +14,12 @@ Eigen::Matrix4d computeDHMatrix(const DHParam& param);
 
 Eigen::Matrix4d computeForwardTransform(const std::vector<DHParam>& params);
 
-Eigen::VectorXd forwardKinematics(const std::vector<DHParam>& params);
+Eigen::VectorXd forwardKinematics(const std::vector<DHParam>& dhParams);
 
 Eigen::MatrixXd computeJacobian(const std::vector<DHParam>& params);
 
 double computeManipulability(const Eigen::MatrixXd& jacobian);
 
 Eigen::Vector3d computeEulerAngles(const Eigen::Matrix3d& R);
+
+Eigen::Matrix3d rotationMatrix(const std::vector<eulerAngles>& eulers);
