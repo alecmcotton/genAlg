@@ -23,3 +23,4 @@ double computeManipulability(const Eigen::MatrixXd& jacobian);
 Eigen::Vector3d computeEulerAngles(const Eigen::Matrix3d& R);
 
 Eigen::Matrix3d rotationMatrix(const std::vector<eulerAngles>& eulers);
+
