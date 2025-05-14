@@ -1,130 +1,81 @@
 #include "kinematics.h"
+#include <Eigen/Dense>
 #include <cmath>
 
-using Eigen::Matrix4d;
-using Eigen::MatrixXd;
-using Eigen::VectorXd;
-using Eigen::Vector3d;
-using Eigen::Matrix3d;
+using namespace Eigen;
 
-Matrix4d computeDHMatrix(const DHParam& param) {
-    double ct = cos(param.theta);
-    double st = sin(param.theta);
-    double ca = cos(param.alpha);
-    double sa = sin(param.alpha);
-
+Matrix4d dh_transform(double a, double alpha, double d, double theta) {
     Matrix4d T;
-    T << ct, -st * ca,  st * sa, param.a * ct,
-         st,  ct * ca, -ct * sa, param.a * st,
-          0,       sa,       ca,       param.d,
-          0,        0,        0,           1;
+    T << cos(theta), -sin(theta)*cos(alpha), sin(theta)*sin(alpha), a*cos(theta),
+         sin(theta),  cos(theta)*cos(alpha), -cos(theta)*sin(alpha), a*sin(theta),
+         0,           sin(alpha),             cos(alpha),            d,
+         0,           0,                      0,                     1;
     return T;
 }
 
-Matrix4d computeForwardTransform(const std::vector<DHParam>& dhParams) {
-    Matrix4d T = Matrix4d::Identity();
-    for (const auto& param : dhParams) {
-        T *= computeDHMatrix(param);
+Matrix4d forward_kinematics(const VectorXd &theta, double L) {
+    Matrix4d A1 = dh_transform(0,     -M_PI/2, 135, theta(0));
+    Matrix4d A2 = dh_transform(135,    0,       0,  theta(1) - M_PI/2);
+    Matrix4d A3 = dh_transform(38,    -M_PI/2,  0,  theta(2));
+    Matrix4d A4 = dh_transform(0,      M_PI/2, 120, theta(3));
+    Matrix4d A5 = dh_transform(0,     -M_PI/2,  0,  theta(4));
+    Matrix4d A6 = dh_transform(L,      0,      70,  theta(5) + M_PI);
+    return A1 * A2 * A3 * A4 * A5 * A6;
+}
+
+Vector3d rotation_error(const Matrix3d &R1, const Matrix3d &R2) {
+    Matrix3d R_err = R1.transpose() * R2;
+    AngleAxisd aa(R_err);
+    return aa.axis() * aa.angle();
+}
+
+MatrixXd numerical_jacobian(const VectorXd &theta, double L) {
+    double delta = 1e-6;
+    Matrix4d T0 = forward_kinematics(theta, L);
+    Vector3d p0 = T0.block<3,1>(0,3);
+    Matrix3d R0 = T0.block<3,3>(0,0);
+
+    MatrixXd J(6, 6);
+    for (int i = 0; i < 6; ++i) {
+        VectorXd perturbed = theta;
+        perturbed(i) += delta;
+        Matrix4d Ti = forward_kinematics(perturbed, L);
+        Vector3d pi = Ti.block<3,1>(0,3);
+        Matrix3d Ri = Ti.block<3,3>(0,0);
+        Vector3d dp = (pi - p0) / delta;
+        Vector3d drot = rotation_error(R0, Ri) / delta;
+        J.block<3,1>(0,i) = dp;
+        J.block<3,1>(3,i) = drot;
     }
-    return T;
-}
-
-Eigen::VectorXd forwardKinematics(const std::vector<DHParam>& dhParams) {
-    Eigen::Matrix4d T = computeForwardTransform(dhParams);
-    Eigen::Vector3d position = T.block<3,1>(0, 3);
-    Eigen::Matrix3d R = T.block<3,3>(0, 0);
-    Eigen::Vector3d eulers = computeEulerAngles(R);
-
-    Eigen::VectorXd result(6);
-    result << position, eulers;
-    return result;
-}
-
-
-Eigen::Vector3d computeEulerAngles(const Eigen::Matrix3d& R) {
-    double alpha, beta, gamma;
-
-    if (std::abs(std::asin(R(0,2))) < 0.01) {
-        alpha = std::atan2(R(0,1),R(1,1));
-        beta = M_PI_2;
-        gamma = 0.0;
-    } else {
-        alpha = std::atan2(-R(1,2),R(2,2));
-        beta = std::asin(R(0,2));
-        gamma = std::atan2(-R(0,1),R(0,0));
-    }
-
-    return Eigen::Vector3d(alpha, beta, gamma);
-}
-
-double computeManipulability(const MatrixXd& jacobian) {
-    MatrixXd JJt = jacobian * jacobian.transpose();
-    return std::sqrt(JJt.determinant());
-}
-
-Eigen::MatrixXd computeNumericalJacobian(const std::vector<DHParam>& dhParams) {
-    constexpr double epsilon = 1e-12;
-    int n = dhParams.size();
-    Eigen::MatrixXd J(6, n);
-
-    for (int i = 0; i < n; ++i) {
-        std::vector<DHParam> dh_lower = dhParams;
-        std::vector<DHParam> dh_upper = dhParams;
-        dh_lower[i].theta -= epsilon;
-        dh_upper[i].theta += epsilon;
-        Eigen::VectorXd pose_upper = forwardKinematics(dh_upper);
-        Eigen::VectorXd pose_lower = forwardKinematics(dh_lower);
-        Eigen::VectorXd diff = (pose_upper - pose_lower) / (2*epsilon);
-        J.col(i) = diff;
-    }
-
     return J;
 }
 
-std::vector<DHParam> substituteJoints(const std::vector<DHParam>& dh_params, const Eigen::VectorXd& joint_angles) {
-    std::vector<DHParam> result = dh_params;
-    for (size_t i = 0; i < result.size(); ++i) {
-        result[i].theta += joint_angles[i];
+std::pair<VectorXd, std::vector<double>> inverse_kinematics_NR(
+    const Matrix4d &T_target,
+    VectorXd theta0,
+    double L,
+    int max_iters,
+    double tol
+) {
+    VectorXd theta = theta0;
+    std::vector<double> errors;
+    double alpha = 0.1;
+
+    for (int i = 0; i < max_iters; ++i) {
+        Matrix4d T_curr = forward_kinematics(theta, L);
+        Vector3d ep = T_target.block<3,1>(0,3) - T_curr.block<3,1>(0,3);
+        Vector3d eo = rotation_error(T_curr.block<3,3>(0,0), T_target.block<3,3>(0,0));
+        VectorXd e(6);
+        e << ep, eo;
+        errors.push_back(e.norm());
+
+        if (e.norm() < tol)
+            break;
+
+        MatrixXd J = numerical_jacobian(theta, L);
+        theta += alpha * J.completeOrthogonalDecomposition().solve(e);
     }
-    return result;
+    return {theta, errors};
 }
 
-
-Eigen::MatrixXd pseudoInverse(const Eigen::MatrixXd& mat, double tolerance) {
-    Eigen::JacobiSVD<Eigen::MatrixXd> svd(mat, Eigen::ComputeThinU | Eigen::ComputeThinV);
-    const auto& singularValues = svd.singularValues();
-    Eigen::VectorXd invSingularValues(singularValues.size());
-
-    for (int i = 0; i < singularValues.size(); ++i) {
-        invSingularValues(i) = (singularValues(i) > tolerance) ? 1.0 / singularValues(i) : 0.0;
-    }
-
-    return svd.matrixV() * invSingularValues.asDiagonal() * svd.matrixU().transpose();
-}
-
-Eigen::VectorXd numericalInverseKinematics(const Eigen::VectorXd& pose,
-                                            std::vector<DHParam>& dh_params,
-                                            int max_iter, double tol, double lambda) {
-    int iter = 0;
-    Eigen::VectorXd theta_prev = Eigen::VectorXd::Zero(dh_params.size()); // are you starting at a singularilty??
-    std::vector<DHParam> temp = substituteJoints(dh_params, theta_prev);
-    Eigen::VectorXd curr = forwardKinematics(temp);
-    Eigen::VectorXd error = (pose-curr);
-    double e = error.norm();
-    Eigen::VectorXd theta(dh_params.size());
-    while (e > tol && iter < max_iter) {
-        Eigen::MatrixXd J = computeNumericalJacobian(temp);
-        //Eigen::MatrixXd Jt = J.completeOrthogonalDecomposition().pseudoInverse();
-        Eigen::MatrixXd Jt = pseudoInverse(J, 1e-6);
-        theta = Jt * error * lambda + theta_prev;
-        theta_prev = theta;
-        temp = substituteJoints(dh_params, theta);
-        curr = forwardKinematics(temp);
-        error = (pose-curr);
-        e = error.norm();
-        iter++;
-    }
-
-    return theta;
-}
 
